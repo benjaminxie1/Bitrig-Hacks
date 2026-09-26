@@ -58,7 +58,7 @@ final class HomeworkTabModel {
     let found = LinearEquation.extract(primary: primary, tex: tex, visibleText: visible)
     equation = found
     if let found {
-      status = "Found \(found.text)"
+      status = "Found \(found.text.trimmingCharacters(in: .whitespaces))"
     } else {
       status = "No equation on this page yet."
     }
@@ -162,12 +162,25 @@ struct HomeworkWebView: UIViewRepresentable {
     if context.coordinator.loadedToken != model.loadToken { context.coordinator.load(into: view) }
   }
 
-  /// On the bundled page only: the working goes on the paper, so hide the page's own text box.
+  /// On the bundled page only: fit the desktop LMS layout to the narrow facing page so the
+  /// question sits at the top, and hide the page's own text box (the working goes on the paper).
   static let bundledPageTidy = """
   if (location.protocol === 'file:') {
     const s = document.createElement('style');
-    s.textContent = '#working, label[for="working"], #check-working, #working-feedback, footer { display: none !important; }'
-      + ' body { font-size: 17px; } .equation { font-size: 2em; }';
+    s.textContent = [
+      'nav.main, header.top .btn, .sub, footer, #working, label[for="working"], #check-working, #working-feedback { display: none !important; }',
+      'html, body { overflow-x: hidden !important; }',
+      'header.top { position: static !important; }',
+      '.top-inner { padding: 8px 14px !important; gap: 8px !important; }',
+      '.logo { font-size: 15px !important; } .logo span { width: 18px !important; height: 18px !important; }',
+      'main { padding: 10px 12px 16px !important; }',
+      'h1 { font-size: 19px !important; margin: 0 0 8px !important; }',
+      '.problem { padding: 14px 16px !important; border-radius: 12px !important; }',
+      '.problem h2 { font-size: 12px !important; margin: 0 0 4px !important; text-transform: uppercase; letter-spacing: .06em; color: #7a6458; }',
+      '.problem p { margin: 0 0 2px !important; font-size: 15px !important; }',
+      '.equation { font-size: 38px !important; margin: 6px 0 8px !important; }',
+      '.note { font-size: 13px !important; margin: 4px 0 0 !important; }'
+    ].join('\\n');
     document.head.appendChild(s);
   }
   """
@@ -176,9 +189,16 @@ struct HomeworkWebView: UIViewRepresentable {
   (() => {
     const text = (sel) => { const el = document.querySelector(sel); return el ? el.innerText : ''; };
     const primary = text('#working-equation') || text('#equation') || text('[data-equation]');
+    // TeX sources, plus MathJax 3 / KaTeX rendered text (Khan Academy). NFKC turns math-italic
+    // letters such as 𝑤 into plain w; zero-width joiners are dropped.
     const tex = Array.from(document.querySelectorAll('annotation[encoding="application/x-tex"], script[type^="math/tex"]'))
-      .map((e) => e.textContent || '').slice(0, 40);
+      .map((e) => e.textContent || '')
+      .concat(Array.from(document.querySelectorAll('mjx-container, .katex-mathml'))
+        .map((e) => (e.textContent || '').normalize('NFKC').replace(/[\\u200B-\\u200D]/g, '')))
+      .slice(0, 60);
     const visible = document.body ? document.body.innerText.slice(0, 20000) : '';
+    const eq = document.querySelector('#working-equation, #equation, [data-equation]');
+    if (eq && location.protocol !== 'file:') eq.scrollIntoView({ block: 'center' });
     return JSON.stringify({ title: document.title || '', primary, tex, visible });
   })()
   """

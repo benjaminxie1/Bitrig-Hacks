@@ -37,6 +37,12 @@ struct Rational: Equatable, Sendable {
     guard !a.overflow, !b.overflow, !denominator.overflow, !numerator.overflow else { return nil }
     return Self(numerator.partialValue, denominator.partialValue)
   }
+  func multiplied(by other: Self) -> Self? {
+    let n = numerator.multipliedReportingOverflow(by: other.numerator)
+    let d = denominator.multipliedReportingOverflow(by: other.denominator)
+    guard !n.overflow, !d.overflow else { return nil }
+    return Self(n.partialValue, d.partialValue)
+  }
   func divided(by other: Self) -> Self? {
     guard other.numerator != 0 else { return nil }
     let g1 = Self.gcd(abs(numerator), abs(other.numerator))
@@ -58,8 +64,32 @@ struct LinearEquation: Equatable, Sendable {
 
   /// Extends Burrow hints.ts EQ_RE with decimals and fractions. Still ax+b=c,
   /// with one variable, never powers, systems or nonlinear expressions.
+  /// k(x ± b) = c, the way Khan Academy's two-step equations are written. Expands to kx + kb = c.
+  static func detectDistributed(in text: String) -> Self? {
+    let number = #"\d+(?:\.\d+)?"#
+    let pattern = #"(?<![\w^/)])([+-]?\s*(?:"# + number + #")?)\s*\*?\s*\(\s*([a-z])\s*([+-])\s*("# + number
+      + #")\s*\)\s*=\s*([+-]?\s*"# + number + #")(?![\w./^(])"#
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+    let ns = text as NSString
+    for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+      func value(_ index: Int) -> String {
+        let range = match.range(at: index)
+        return range.location == NSNotFound ? "" : ns.substring(with: range).replacingOccurrences(of: " ", with: "")
+      }
+      let kText = value(1)
+      let k = kText.isEmpty || kText == "+" ? Rational(1) : kText == "-" ? Rational(-1) : Rational.parse(kText)
+      guard let k, k.numerator != 0, let b = Rational.parse((value(3) == "-" ? "-" : "") + value(4)),
+            let c = Rational.parse(value(5)), let kb = k.multiplied(by: b) else { continue }
+      let result = Self(coefficient: k, constant: kb, rightSide: c, variable: value(2).lowercased(),
+        text: ns.substring(with: match.range).replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression))
+      if result.solution != nil { return result }
+    }
+    return nil
+  }
+
   static func detect(in raw: String) -> Self? {
     let text = normalizeTeX(raw)
+    if let distributed = detectDistributed(in: text) { return distributed }
     let number = #"(?:\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?)"#
     let pattern = #"(?<![\w^/])(-?\s*"# + number + #"?|\+?)\s*\*?\s*([a-z])\s*(?:([+-])\s*("# + number + #"))?\s*=\s*([+-]?\s*"# + number + #")(?![\w./^])"#
     guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
