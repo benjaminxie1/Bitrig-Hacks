@@ -1,0 +1,39 @@
+name: Burrow
+options:
+  bundleIdPrefix: com.benx
+  deploymentTarget:
+    iOS: "27.1"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "27.1"
+targets:
+  Burrow:
+    type: application
+    platform: iOS
+    sources:
+      - path: Burrow
+        excludes: ["Art", "Art/**"]
+      - path: Burrow/Art
+        type: folder
+        buildPhase: resources
+    info:
+      path: Burrow/Info.plist
+      properties:
+        CFBundleDisplayName: Burrow
+        UILaunchScreen:
+          UIColorName: ""
+        UIAppFonts: [Art/fonts/VT323.ttf, Art/fonts/PixelifySans.ttf]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortraitUpsideDown]
+        UIStatusBarStyle: UIStatusBarStyleDarkContent
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.benx.burrow.duo
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor

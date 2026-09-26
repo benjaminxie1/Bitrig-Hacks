@@ -1,0 +1,72 @@
+{
+  "title": "Practice: Linear Equations",
+  "course": "Riverside Learning · Algebra 1",
+  "problems": [
+    {
+      "tokens": [{ "text": "3x", "id": "a" }, { "text": "+ 5", "id": "b" }, { "text": "=" }, { "text": "20" }],
+      "answer": "5",
+      "hints": [
+        { "text": "Try getting the 5 out of the way first. What could you do to both sides?", "focus": "b" },
+        { "text": "You want the 3x alone. If you subtract 5 on both sides, what's left on the right?", "focus": "b" },
+        { "text": "After that step you'd have 3x = 15. What undoes multiplying by 3?", "focus": "a" },
+        { "text": "Here's a similar one: 2x + 3 = 11. Subtract 3 → 2x = 8, then divide by 2 → x = 4. Try the same moves here.", "focus": "answer" },
+        { "text": "Divide both sides by 3, then plug your answer back into the original to check it.", "focus": "answer" }
+      ]
+    },
+    {
+      "tokens": [{ "text": "2x", "id": "a" }, { "text": "− 7", "id": "b" }, { "text": "=" }, { "text": "9" }],
+      "answer": "8",
+      "hints": [
+        { "text": "Something is being taken away from 2x. How could you undo that on both sides?", "focus": "b" },
+        { "text": "If you add 7 to both sides, what does the right side become?", "focus": "b" },
+        { "text": "After that you'd have 2x = 16. What undoes multiplying by 2?", "focus": "a" },
+        { "text": "Here's a similar one: 3x − 2 = 10. Add 2 → 3x = 12, divide by 3 → x = 4. Same moves here!", "focus": "answer" },
+        { "text": "Split 16 into two equal groups. That's your x.", "focus": "answer" }
+      ]
+    },
+    {
+      "tokens": [{ "text": "4x", "id": "a" }, { "text": "+ 3", "id": "b" }, { "text": "=" }, { "text": "27" }],
+      "answer": "6",
+      "hints": [
+        { "text": "Which number is stuck to the 4x by adding? Start there.", "focus": "b" },
+        { "text": "Subtract 3 from both sides. What's left on the right?", "focus": "b" },
+        { "text": "Now you'd have 4x = 24. What's one quarter of 24?", "focus": "a" },
+        { "text": "Similar one: 5x + 1 = 21. Subtract 1 → 5x = 20, divide by 5 → x = 4.", "focus": "answer" },
+        { "text": "Divide 24 by 4 and check it in the original equation.", "focus": "answer" }
+      ]
+    },
+    {
+      "tokens": [{ "text": "5x", "id": "a" }, { "text": "− 10", "id": "b" }, { "text": "=" }, { "text": "25" }],
+      "answer": "7",
+      "hints": [
+        { "text": "Undo the − 10 first. What keeps the equation balanced?", "focus": "b" },
+        { "text": "Add 10 to both sides. What does 5x equal now?", "focus": "b" },
+        { "text": "With 5x = 35, what undoes the times 5?", "focus": "a" },
+        { "text": "Similar one: 2x − 4 = 6. Add 4 → 2x = 10, divide by 2 → x = 5.", "focus": "answer" },
+        { "text": "How many 5s fit into 35?", "focus": "answer" }
+      ]
+    },
+    {
+      "tokens": [{ "text": "6x", "id": "a" }, { "text": "+ 1", "id": "b" }, { "text": "=" }, { "text": "−17" }],
+      "answer": "-3",
+      "hints": [
+        { "text": "Negative numbers work the same way. What do you do with the + 1?", "focus": "b" },
+        { "text": "Subtract 1 from both sides. What's −17 minus 1?", "focus": "b" },
+        { "text": "You'd have 6x = −18. Divide by 6, and watch the sign!", "focus": "a" },
+        { "text": "Similar one: 2x + 2 = −8. Subtract 2 → 2x = −10, divide by 2 → x = −5.", "focus": "answer" },
+        { "text": "A negative divided by a positive stays negative. Use the − key.", "focus": "answer" }
+      ]
+    },
+    {
+      "tokens": [{ "text": "2x", "id": "a" }, { "text": "+ 3", "id": "b" }, { "text": "=" }, { "text": "8" }],
+      "answer": "5/2",
+      "hints": [
+        { "text": "Start like always: what happens to the + 3?", "focus": "b" },
+        { "text": "Subtract 3 from both sides. What does 2x equal?", "focus": "b" },
+        { "text": "2x = 5. The answer won't be a whole number, and that's okay!", "focus": "a" },
+        { "text": "Similar one: 2x = 7 gives x = 7/2. Use the fraction key.", "focus": "answer" },
+        { "text": "Put the 5 over the 2 with the fraction bar.", "focus": "answer" }
+      ]
+    }
+  ]
+}
