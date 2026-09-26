@@ -9,45 +9,18 @@ enum StepJudge {
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
   }
 
-  static func parseLinearSide(_ raw: String) -> LinearSide? {
-    var remaining = raw.replacingOccurrences(of: "−", with: "-")
-      .replacingOccurrences(of: "·", with: "*").trimmingCharacters(in: .whitespaces)
-    guard !remaining.isEmpty else { return nil }
-    let pattern = #"^\s*([+-]?)\s*(?:(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)?\s*(?:\*\s*)?([a-z])?)\s*"#
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
-    var result = LinearSide(coef: 0, konst: 0)
-    var first = true
-    while !remaining.isEmpty {
-      let ns = remaining as NSString
-      guard let match = regex.firstMatch(in: remaining, range: NSRange(location: 0, length: ns.length)),
-            match.range.length > 0,
-            !ns.substring(with: match.range).trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
-      func group(_ index: Int) -> String? {
-        let range = match.range(at: index)
-        return range.location == NSNotFound ? nil : ns.substring(with: range)
-      }
-      let sign = group(1) ?? ""
-      guard first || !sign.isEmpty else { return nil }
-      let multiplier = sign == "-" ? -1.0 : 1.0
-      if let numerator = group(2).flatMap(Double.init), let denominator = group(3).flatMap(Double.init) {
-        guard denominator != 0 else { return nil }
-        result.konst += multiplier * numerator / denominator
-      } else if group(5) != nil {
-        result.coef += multiplier * (group(4).flatMap(Double.init) ?? 1)
-      } else if let number = group(4).flatMap(Double.init) {
-        result.konst += multiplier * number
-      } else { return nil }
-      remaining = ns.substring(from: match.range.length)
-      first = false
-    }
+  /// One side of a working line via the shared LinearParser: parentheses, like terms, fractions and
+  /// decimals are fine; powers, variable denominators, stray words or a second letter are refused.
+  static func parseLinearSide(_ raw: String, variable: Character? = nil) -> LinearSide? {
+    guard let side = LinearParser.parse(raw, variable: variable) else { return nil }
+    let result = LinearSide(coef: side.form.coef.doubleValue, konst: side.form.konst.doubleValue)
     return result.coef.isFinite && result.konst.isFinite ? result : nil
   }
 
-  static func parseWorkingLine(_ raw: String) -> ParsedStep? {
-    let parts = raw.components(separatedBy: "=")
-    guard parts.count == 2, let lhs = parseLinearSide(parts[0]),
-          let rhs = parseLinearSide(parts[1]) else { return nil }
-    return ParsedStep(lhs: lhs, rhs: rhs)
+  static func parseWorkingLine(_ raw: String, variable: Character? = nil) -> ParsedStep? {
+    guard let equation = LinearParser.parseEquation(raw, variable: variable) else { return nil }
+    return ParsedStep(lhs: LinearSide(coef: equation.lhs.coef.doubleValue, konst: equation.lhs.konst.doubleValue),
+                      rhs: LinearSide(coef: equation.rhs.coef.doubleValue, konst: equation.rhs.konst.doubleValue))
   }
 
   static func holds(_ line: ParsedStep, at solution: Double) -> Bool {
@@ -68,7 +41,7 @@ enum StepJudge {
     var result = WorkingJudgement(judged: true, steps: [], firstWrongStep: nil, solved: false, planStep: 0)
     var constantCleared = false
     for (index, line) in splitWorking(working).enumerated() {
-      guard let parsed = parseWorkingLine(line) else {
+      guard let parsed = parseWorkingLine(line, variable: problem.letter) else {
         result.steps.append(StepVerdict(step: index + 1, line: line, ok: nil))
         continue
       }

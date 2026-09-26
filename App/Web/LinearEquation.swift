@@ -1,135 +1,110 @@
 import Foundation
 
-/// Reduced rational arithmetic keeps extracted decimal/fraction solutions exact.
-/// Overflow or unsupported math returns nil instead of inventing a problem.
-struct Rational: Equatable, Sendable {
-  var numerator: Int64
-  var denominator: Int64
-  init?(_ numerator: Int64, _ denominator: Int64 = 1) {
-    guard denominator != 0, numerator != .min, denominator != .min else { return nil }
-    let divisor = Self.gcd(abs(numerator), abs(denominator))
-    self.numerator = numerator / divisor * (denominator < 0 ? -1 : 1)
-    self.denominator = abs(denominator) / divisor
-  }
-  var doubleValue: Double { Double(numerator) / Double(denominator) }
-  var text: String { denominator == 1 ? "\(numerator)" : "\(numerator)/\(denominator)" }
-  static func gcd(_ a: Int64, _ b: Int64) -> Int64 {
-    var a = a, b = b
-    while b != 0 { (a, b) = (b, a % b) }
-    return max(1, a)
-  }
-  static func parse(_ text: String) -> Self? {
-    let parts = text.replacingOccurrences(of: " ", with: "").components(separatedBy: "/")
-    if parts.count == 2, let a = parse(parts[0]), let b = parse(parts[1]) { return a.divided(by: b) }
-    guard parts.count == 1 else { return nil }
-    let decimals = text.components(separatedBy: ".")
-    if decimals.count == 1, let integer = Int64(text) { return Rational(integer) }
-    guard decimals.count == 2, decimals[1].count <= 8,
-          let integer = Int64(text.replacingOccurrences(of: ".", with: "")) else { return nil }
-    return Rational(integer, Int64(pow(10, Double(decimals[1].count))))
-  }
-  func subtracting(_ other: Self) -> Self? {
-    let divisor = Self.gcd(denominator, other.denominator)
-    let a = numerator.multipliedReportingOverflow(by: other.denominator / divisor)
-    let b = other.numerator.multipliedReportingOverflow(by: denominator / divisor)
-    let denominator = denominator.multipliedReportingOverflow(by: other.denominator / divisor)
-    let numerator = a.partialValue.subtractingReportingOverflow(b.partialValue)
-    guard !a.overflow, !b.overflow, !denominator.overflow, !numerator.overflow else { return nil }
-    return Self(numerator.partialValue, denominator.partialValue)
-  }
-  func multiplied(by other: Self) -> Self? {
-    let n = numerator.multipliedReportingOverflow(by: other.numerator)
-    let d = denominator.multipliedReportingOverflow(by: other.denominator)
-    guard !n.overflow, !d.overflow else { return nil }
-    return Self(n.partialValue, d.partialValue)
-  }
-  func divided(by other: Self) -> Self? {
-    guard other.numerator != 0 else { return nil }
-    let g1 = Self.gcd(abs(numerator), abs(other.numerator))
-    let g2 = Self.gcd(denominator, other.denominator)
-    let n = (numerator / g1).multipliedReportingOverflow(by: other.denominator / g2)
-    let d = (denominator / g2).multipliedReportingOverflow(by: other.numerator / g1)
-    guard !n.overflow, !d.overflow else { return nil }
-    return Self(n.partialValue, d.partialValue)
-  }
-}
-
+/// The homework problem found on a web page: one linear equation in one variable.
+/// Parsing and solving go through LinearParser, the same parser the step judge uses for each
+/// handwritten line, so the page and the working always agree. Anything non-linear is refused.
 struct LinearEquation: Equatable, Sendable {
-  var coefficient: Rational
-  var constant: Rational
-  var rightSide: Rational
+  var form: LinearEquationForm
   var variable: String
   var text: String
-  var solution: Rational? { rightSide.subtracting(constant)?.divided(by: coefficient) }
+  var solution: Rational? { form.solution }
 
-  /// Extends Burrow hints.ts EQ_RE with decimals and fractions. Still ax+b=c,
-  /// with one variable, never powers, systems or nonlinear expressions.
-  /// k(x ± b) = c, the way Khan Academy's two-step equations are written. Expands to kx + kb = c.
-  static func detectDistributed(in text: String) -> Self? {
-    let number = #"\d+(?:\.\d+)?"#
-    let pattern = #"(?<![\w^/)])([+-]?\s*(?:"# + number + #")?)\s*\*?\s*\(\s*([a-z])\s*([+-])\s*("# + number
-      + #")\s*\)\s*=\s*([+-]?\s*"# + number + #")(?![\w./^(])"#
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
-    let ns = text as NSString
-    for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-      func value(_ index: Int) -> String {
-        let range = match.range(at: index)
-        return range.location == NSNotFound ? "" : ns.substring(with: range).replacingOccurrences(of: " ", with: "")
-      }
-      let kText = value(1)
-      let k = kText.isEmpty || kText == "+" ? Rational(1) : kText == "-" ? Rational(-1) : Rational.parse(kText)
-      guard let k, k.numerator != 0, let b = Rational.parse((value(3) == "-" ? "-" : "") + value(4)),
-            let c = Rational.parse(value(5)), let kb = k.multiplied(by: b) else { continue }
-      let result = Self(coefficient: k, constant: kb, rightSide: c, variable: value(2).lowercased(),
-        text: ns.substring(with: match.range).replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression))
-      if result.solution != nil { return result }
+  /// ax + b = c when the right side is a constant (so 3x + 5 = 20 stays recognisable as p1);
+  /// otherwise everything moves left: (a − c)x + (b − d) = 0.
+  var coefficient: Rational {
+    form.rhs.isConstant ? form.lhs.coef : form.lhs.coef.subtracting(form.rhs.coef) ?? form.lhs.coef
+  }
+  var constant: Rational {
+    form.rhs.isConstant ? form.lhs.konst : form.lhs.konst.subtracting(form.rhs.konst) ?? form.lhs.konst
+  }
+  var rightSide: Rational { form.rhs.isConstant ? form.rhs.konst : .zero }
+
+  static func detect(in raw: String) -> Self? {
+    for candidate in candidates(in: normalizeTeX(raw)) {
+      guard let form = LinearParser.parseEquation(candidate) ?? crossMultiplied(candidate),
+            let v = form.variable, form.solution != nil else { continue }
+      return Self(form: form, variable: String(v), text: display(candidate))
     }
     return nil
   }
 
-  static func detect(in raw: String) -> Self? {
-    let text = normalizeTeX(raw)
-    if let distributed = detectDistributed(in: text) { return distributed }
-    let number = #"(?:\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?)"#
-    let pattern = #"(?<![\w^/])(-?\s*"# + number + #"?|\+?)\s*\*?\s*([a-z])\s*(?:([+-])\s*("# + number + #"))?\s*=\s*([+-]?\s*"# + number + #")(?![\w./^])"#
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
-    let ns = text as NSString
-    for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-      func value(_ index: Int) -> String {
-        let range = match.range(at: index)
-        return range.location == NSNotFound ? "" : ns.substring(with: range).replacingOccurrences(of: " ", with: "")
-      }
-      let coefficientText = value(1)
-      let a = coefficientText.isEmpty || coefficientText == "+" ? Rational(1) : coefficientText == "-" ? Rational(-1) : Rational.parse(coefficientText)
-      let b = value(4).isEmpty ? Rational(0) : Rational.parse((value(3) == "-" ? "-" : "") + value(4))
-      guard let a, let b, let c = Rational.parse(value(5)), a.numerator != 0 else { continue }
-      // Do not accept a linear-looking suffix of a nonlinear equation.
-      let before = ns.substring(to: match.range.location).components(separatedBy: .newlines).last ?? ""
-      let after = ns.substring(from: match.range.location + match.range.length).components(separatedBy: .newlines).first ?? ""
-      if before.contains("=") || before.contains("^") || after.trimmingCharacters(in: .whitespaces).first.map({ "+-*/=^".contains($0) }) == true { continue }
-      let result = Self(coefficient: a, constant: b, rightSide: c, variable: value(2).lowercased(),
-        text: ns.substring(with: match.range).replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression))
-      if result.solution != nil { return result }
+  /// k/(linear) = c, as in Khan's "rational equations intro": cross-multiplied to k = c·(linear), which is
+  /// the first step a student writes. Only accepted when the solution keeps the denominator non-zero.
+  static func crossMultiplied(_ candidate: String) -> LinearEquationForm? {
+    let sides = LinearParser.normalize(candidate).components(separatedBy: "=")
+    guard sides.count == 2 else { return nil }
+    let fraction = #"^\s*\(?\s*([^()/]+?)\s*\)?\s*/\s*\((.+)\)\s*$"#
+    for (fractionSide, otherSide) in [(sides[0], sides[1]), (sides[1], sides[0])] {
+      guard let match = fractionSide.range(of: fraction, options: .regularExpression) else { continue }
+      let part = String(fractionSide[match])
+      guard let regex = try? NSRegularExpression(pattern: fraction),
+            let m = regex.firstMatch(in: part, range: NSRange(part.startIndex..., in: part)),
+            let numRange = Range(m.range(at: 1), in: part), let denRange = Range(m.range(at: 2), in: part),
+            let numerator = LinearParser.parse(String(part[numRange])), numerator.form.isConstant,
+            let denominator = LinearParser.parse(String(part[denRange])), let v = denominator.variable,
+            let other = LinearParser.parse(otherSide, variable: v), other.form.isConstant,
+            let scaled = denominator.form.scaled(by: other.form.konst) else { continue }
+      let form = LinearEquationForm(lhs: numerator.form, rhs: scaled, variable: v)
+      guard let x = form.solution, let atX = denominator.form.coef.multiplied(by: x)?.adding(denominator.form.konst),
+            !atX.isZero else { return nil }
+      return form
     }
     return nil
+  }
+
+  /// Equation-shaped spans around each "=": digits, operators, parentheses and lone letters.
+  /// A letter touching another letter belongs to a word ("Solve", "for") and ends the span.
+  /// If a span doesn't parse, leading words are dropped one at a time ("is a 3x + 5 = 20").
+  static func candidates(in text: String) -> [String] {
+    var spans: [String] = []
+    for line in text.components(separatedBy: .newlines) where line.contains("=") {
+      let chars = Array(line)
+      func isWordLetter(_ i: Int) -> Bool {
+        chars[i].isLetter && ((i > 0 && chars[i - 1].isLetter) || (i + 1 < chars.count && chars[i + 1].isLetter))
+      }
+      func isMath(_ i: Int) -> Bool {
+        let c = chars[i]
+        return !isWordLetter(i) && (c.isNumber || c.isLetter || c.isWhitespace || "+-*/().=^".contains(c))
+      }
+      for (eq, c) in chars.enumerated() where c == "=" {
+        var lo = eq, hi = eq
+        while lo > 0, isMath(lo - 1) { lo -= 1 }
+        while hi + 1 < chars.count, isMath(hi + 1) { hi += 1 }
+        let span = String(chars[lo...hi]).trimmingCharacters(in: .whitespaces)
+        let words = span.split(separator: " ", omittingEmptySubsequences: true)
+        for drop in 0..<max(1, words.count) {
+          let tail = words.dropFirst(drop).joined(separator: " ")
+          if tail.contains("="), !spans.contains(tail) { spans.append(tail) }
+        }
+      }
+    }
+    return spans
+  }
+
+  static func display(_ candidate: String) -> String {
+    candidate.replacingOccurrences(of: #"\((\d+(?:\.\d+)?)\)"#, with: "$1", options: .regularExpression)
+      .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+      .replacingOccurrences(of: "-", with: "−")
+      .trimmingCharacters(in: .whitespaces)
   }
 
   static func normalizeTeX(_ input: String) -> String {
     var result = input.replacingOccurrences(of: "−", with: "-").replacingOccurrences(of: "–", with: "-")
-      .replacingOccurrences(of: "×", with: "x").replacingOccurrences(of: "·", with: "*")
-    result = result.replacingOccurrences(of: #"\\(?:d?frac)\s*\{([^{}]+)\}\s*\{([^{}]+)\}"#, with: "$1/$2", options: .regularExpression)
-    for command in [#"\left"#, #"\right"#, #"\("#, #"\)"#, #"\["#, #"\]"#, "$", #"\,"#, #"\!"#] {
+    // \frac{a}{b} keeps its grouping: (a)/(b).
+    result = result.replacingOccurrences(of: #"\\(?:d|t)?frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}"#, with: "($1)/($2)", options: .regularExpression)
+    for command in [#"\left"#, #"\right"#, #"\("#, #"\)"#, #"\["#, #"\]"#, "$", #"\,"#, #"\!"#, #"\;"#] {
       result = result.replacingOccurrences(of: command, with: "")
     }
     result = result.replacingOccurrences(of: #"\cdot"#, with: "*").replacingOccurrences(of: #"\times"#, with: "*")
+      .replacingOccurrences(of: #"\div"#, with: "/").replacingOccurrences(of: "{", with: "(").replacingOccurrences(of: "}", with: ")")
     return result
   }
 
   var problem: PracticeProblem {
-    let isP1 = coefficient == Rational(3) && constant == Rational(5) && rightSide == Rational(20) && variable == "x"
+    let isP1 = coefficient == Rational(3)! && constant == Rational(5)! && rightSide == Rational(20)! && variable == "x"
     return PracticeProblem(id: isP1 ? "p1" : "web:\(coefficient.text):\(constant.text):\(rightSide.text):\(variable)",
       title: "Web practice", coefficient: coefficient.doubleValue, constant: constant.doubleValue,
-      rightSide: rightSide.doubleValue, equation: text, focusTerm: "", hints: [])
+      rightSide: rightSide.doubleValue, equation: text, focusTerm: "", hints: [], variable: variable)
   }
 
   static func extract(primary: String, tex: [String], visibleText: String) -> Self? {

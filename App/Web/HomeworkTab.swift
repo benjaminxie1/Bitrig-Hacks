@@ -75,6 +75,7 @@ struct HomeworkTab: View {
   var body: some View {
     VStack(spacing: 0) {
       addressBar
+      if !model.recording { bookmarks }
       HomeworkWebView(model: model)
         .background(Color.white)
         .overlay(alignment: .top) {
@@ -121,6 +122,42 @@ struct HomeworkTab: View {
     .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 6)
   }
 
+  /// One-tap homework for live demos: no typing URLs on stage.
+  static let bookmarkList: [(title: String, address: String)] = [
+    ("Riverside", HomeworkTabModel.bundledAddress),
+    ("Khan · 1-step", "www.khanacademy.org/e/linear_equations_1"),
+    ("Khan · 2-step", "www.khanacademy.org/e/linear_equations_2"),
+    ("Khan · both sides", "www.khanacademy.org/e/linear_equations_3"),
+  ]
+
+  private var bookmarks: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 6) {
+        ForEach(Self.bookmarkList, id: \.title) { mark in
+          Button {
+            editing = false
+            model.open(mark.address)
+          } label: {
+            Text(mark.title).font(BurrowTheme.ui(13)).foregroundStyle(BurrowTheme.ink)
+              .padding(.horizontal, 10).padding(.vertical, 5)
+              .background { NineSlice(name: isCurrent(mark.address) ? "button" : "button_quiet", scale: 2) }
+          }
+          .buttonStyle(.plain)
+          .accessibilityHint("Opens this homework page")
+        }
+      }
+      .padding(.horizontal, 12)
+    }
+    .padding(.bottom, 6)
+  }
+
+  /// Khan redirects /e/linear_equations_2 to a long course URL; match on the exercise name.
+  private func isCurrent(_ address: String) -> Bool {
+    if address == HomeworkTabModel.bundledAddress { return model.isBundled }
+    guard !model.isBundled, let exercise = address.split(separator: "/").last else { return false }
+    return model.address.hasSuffix(String(exercise))
+  }
+
   private var statusLine: some View {
     HStack(spacing: 6) {
       Text(model.equation == nil ? "?" : "✓")
@@ -144,11 +181,19 @@ struct HomeworkWebView: UIViewRepresentable {
 
   func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
+  /// A stable identifier for the homework tab's own website data store (cookies survive relaunches).
+  static let storeID = UUID(uuidString: "5B0F2C8E-1D2A-4C3B-9E7F-2A6B8C4D1E10")!
+
   func makeUIView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
-    configuration.websiteDataStore = .nonPersistent()
+    // Normal mode keeps its own cookie jar, so a site's cookie banner is answered once, not every launch.
+    // Recording mode stays ephemeral and offline.
+    configuration.websiteDataStore = model.recording ? .nonPersistent() : WKWebsiteDataStore(forIdentifier: Self.storeID)
     configuration.userContentController.addUserScript(
       WKUserScript(source: Self.bundledPageTidy, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+    configuration.userContentController.addUserScript(
+      WKUserScript(source: Self.watchPage, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+    configuration.userContentController.add(WeakMessageProxy(context.coordinator), name: "homework")
     let view = WKWebView(frame: .zero, configuration: configuration)
     view.navigationDelegate = context.coordinator
     view.allowsBackForwardNavigationGestures = !model.recording
@@ -185,17 +230,45 @@ struct HomeworkWebView: UIViewRepresentable {
   }
   """
 
+  /// Reports DOM changes (debounced) so single-page sites like Khan Academy, which swap the problem
+  /// in place after "Next question", get re-read.
+  static let watchPage = """
+  (() => {
+    if (window.__rabbitWatch) return;
+    let timer = null;
+    const send = () => { try { window.webkit.messageHandlers.homework.postMessage('changed'); } catch (e) {} };
+    window.__rabbitWatch = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(send, 700); });
+    window.__rabbitWatch.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  })();
+  """
+
   static let readPage = """
   (() => {
     const text = (sel) => { const el = document.querySelector(sel); return el ? el.innerText : ''; };
     const primary = text('#working-equation') || text('#equation') || text('[data-equation]');
-    // TeX sources, plus MathJax 3 / KaTeX rendered text (Khan Academy). NFKC turns math-italic
-    // letters such as 𝑤 into plain w; zero-width joiners are dropped.
+    // MathML (MathJax's assistive copy, KaTeX's .katex-mathml) keeps fraction bars and exponents that
+    // the rendered text loses: 2/(2q+3) would otherwise read as "22q+3". NFKC turns math-italic 𝑤 into w;
+    // invisible times / function application and zero-width joiners are dropped.
+    const clean = (s) => (s || '').normalize('NFKC').replace(/[\\u200B-\\u200D\\u2061-\\u2064]/g, '');
+    const elems = (n) => Array.from(n.childNodes).filter((k) => k.nodeType === 1);
+    const ser = (n) => {
+      if (!n) return '';
+      if (n.nodeType === 3) return n.nodeValue;
+      const kids = elems(n);
+      switch ((n.localName || '').toLowerCase()) {
+        case 'annotation': case 'annotation-xml': return '';
+        case 'mfrac': return '(' + ser(kids[0]) + ')/(' + ser(kids[1]) + ')';
+        case 'msup': return ser(kids[0]) + '^(' + ser(kids[1]) + ')';
+        case 'msub': return ser(kids[0]);
+        case 'msqrt': case 'mroot': return 'sqrt(' + kids.map(ser).join('') + ')';
+        case 'mspace': return ' ';
+        default: return Array.from(n.childNodes).map(ser).join('');
+      }
+    };
     const tex = Array.from(document.querySelectorAll('annotation[encoding="application/x-tex"], script[type^="math/tex"]'))
       .map((e) => e.textContent || '')
-      .concat(Array.from(document.querySelectorAll('mjx-container, .katex-mathml'))
-        .map((e) => (e.textContent || '').normalize('NFKC').replace(/[\\u200B-\\u200D]/g, '')))
-      .slice(0, 60);
+      .concat(Array.from(document.querySelectorAll('math')).map((m) => clean(ser(m))))
+      .slice(0, 80);
     const visible = document.body ? document.body.innerText.slice(0, 20000) : '';
     const eq = document.querySelector('#working-equation, #equation, [data-equation]');
     if (eq && location.protocol !== 'file:') eq.scrollIntoView({ block: 'center' });
@@ -259,6 +332,12 @@ struct HomeworkWebView: UIViewRepresentable {
       model.status = "That page didn't load."
     }
 
+    /// The page changed in place (a new Khan problem): read it again.
+    func pageChanged(in webView: WKWebView?) {
+      guard let webView, !webView.isLoading else { return }
+      read(webView)
+    }
+
     private func read(_ webView: WKWebView) {
       let model = self.model
       webView.evaluateJavaScript(HomeworkWebView.readPage) { result, _ in
@@ -277,5 +356,15 @@ struct HomeworkWebView: UIViewRepresentable {
         }
       }
     }
+  }
+}
+
+/// Forwards page-changed messages without the user content controller retaining the coordinator.
+@MainActor
+final class WeakMessageProxy: NSObject, WKScriptMessageHandler {
+  weak var target: HomeworkWebView.Coordinator?
+  init(_ target: HomeworkWebView.Coordinator) { self.target = target }
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    target?.pageChanged(in: message.webView)
   }
 }

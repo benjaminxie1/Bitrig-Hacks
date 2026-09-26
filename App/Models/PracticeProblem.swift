@@ -9,7 +9,10 @@ struct PracticeProblem: Codable, Identifiable, Equatable, Sendable {
   var equation: String
   var focusTerm: String
   var hints: [Hint]
+  /// The problem's letter when it isn't x (web homework: w, g, f, q…). Bundled problems omit it.
+  var variable: String? = nil
 
+  var letter: Character { variable?.first ?? "x" }
   var answer: Double { (rightSide - constant) / coefficient }
 
   func accepts(_ input: String) -> Bool {

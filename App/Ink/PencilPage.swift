@@ -24,7 +24,7 @@ struct PencilPage: UIViewRepresentable {
     coordinator.document = document
     view.isUserInteractionEnabled = !readOnly && !document.isReplaying
     view.tool = document.tool == .pen
-      ? PKInkingTool(.pen, color: UIColor(BurrowTheme.ink), width: max(1.5, size.width * 0.005))
+      ? PKInkingTool(.pen, color: UIColor(BurrowTheme.ink), width: max(1.8, size.width * 0.0062))
       : PKEraserTool(.vector)
     if coordinator.revision != document.revision || coordinator.size != size {
       if document.isDrawing && coordinator.size != size {

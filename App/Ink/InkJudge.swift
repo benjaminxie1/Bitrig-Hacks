@@ -6,7 +6,9 @@ enum InkJudge {
 
   static func judge(lines: [InkLine], problem: PracticeProblem, rung: Int, reason: InkReason = .ink) -> InkJudgement {
     var result = InkJudgement.empty
-    result.lines = lines.map { MathNormalizer.normalize($0.text) }
+    result.lines = lines.map {
+      MathNormalizer.repairLookalikes(MathNormalizer.normalize($0.text, variable: problem.letter), variable: problem.letter)
+    }
     result.space = largestEmptySpace(around: lines.map(\.box))
     guard !lines.isEmpty else { return result }
     result.status = .ok
@@ -16,15 +18,17 @@ enum InkJudge {
     for (index, line) in lines.enumerated() {
       let normalized = result.lines[index]
       if index == lines.count - 1 && MathNormalizer.isUnfinished(normalized) { continue }
+      // Copying the problem down is how most working starts; it never needs a verdict.
+      if MathNormalizer.fingerprint(normalized) == MathNormalizer.fingerprint(problem.equation) { continue }
       guard line.confidence >= minimumConfidence, line.box.isValid,
-            let parsed = StepJudge.parseWorkingLine(normalized) else {
+            let parsed = StepJudge.parseWorkingLine(normalized, variable: problem.letter) else {
         result.status = .unclear
         result.nudge = "I can't quite read that line. Can you write it a little bigger?"
         return result
       }
       // The parser deliberately accepts a single variable, never mixed-variable work.
       let variables = Set(normalized.filter { $0.isLetter }.map { $0.lowercased() })
-      guard variables.isSubset(of: ["x"]) else {
+      guard variables.isSubset(of: [String(problem.letter)]) else {
         result.status = .unclear
         result.nudge = "I can't quite read that line. Can you write it a little bigger?"
         return result
@@ -46,7 +50,7 @@ enum InkJudge {
     }
     // Upstream's judge remembers any earlier solved line. The ink contract is
     // stricter: only a correct, complete final line counts as finishing.
-    if let last = result.lines.last, let parsed = StepJudge.parseWorkingLine(last) {
+    if let last = result.lines.last, let parsed = StepJudge.parseWorkingLine(last, variable: problem.letter) {
       result.solved = parsed.lhs.coef == 1 && parsed.lhs.konst == 0 && parsed.rhs.coef == 0
         && StepJudge.holds(parsed, at: problem.answer)
     }
