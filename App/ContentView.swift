@@ -7,6 +7,7 @@ struct ContentView: View {
   @Environment(\.accessibilityReduceMotion) private var reducedMotion
   @Environment(\.scenePhase) private var scenePhase
   @State private var poseModel = PoseModel()
+  @State private var homework = HomeworkTabModel(recording: ProcessInfo.processInfo.arguments.contains("-recording"))
   @State private var session = InkPracticeSession(recording: ProcessInfo.processInfo.arguments.contains("-recording"))
   @State private var showsDebugMenu = false
   @State private var photoSelection: PhotosPickerItem?
@@ -75,7 +76,7 @@ struct ContentView: View {
         photoSelection = nil
       }
     }
-    .confirmationDialog("Burrow demo", isPresented: $showsDebugMenu, titleVisibility: .visible) {
+    .confirmationDialog("RABBITHELPER demo", isPresented: $showsDebugMenu, titleVisibility: .visible) {
       ForEach(BurrowPose.allCases) { pose in Button(pose.title) { poseModel.overridePose = pose } }
       Button("Use Device Pose") { poseModel.overridePose = nil }
       Button(session.recorder.isRecording ? "Stop recording ink" : "Record ink") {
@@ -92,12 +93,12 @@ struct ContentView: View {
       ForEach(InkRecorder.assets(), id: \.0.id) { asset, directory in
         Button(asset.title) { session.load(asset, directory: directory) }
       }
-      Button("Reset demo") { session.newPage() }
+      Button("Reset demo") { session.problemIndex = 0; session.newPage() }
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Record your strokes, then review the saved sidecar before bundling. \(session.readingSource)")
     }
-    .alert("Burrow", isPresented: Binding(get: { session.notice != nil }, set: { if !$0 { session.notice = nil } })) {
+    .alert("RABBITHELPER", isPresented: Binding(get: { session.notice != nil }, set: { if !$0 { session.notice = nil } })) {
       Button("OK") { session.notice = nil }
     } message: { Text(session.notice ?? "") }
   }
@@ -111,6 +112,7 @@ struct ContentView: View {
       HStack {
         Text("YOUR WORK").font(BurrowTheme.ui(13)).tracking(1)
         Spacer()
+        if layout.isHorizontal { Text(session.problem.equation).font(BurrowTheme.digits(22)); Spacer() }
         Text("\(session.problemIndex + 1) / \(session.problems.count)").font(BurrowTheme.ui(13))
       }
       .foregroundStyle(BurrowTheme.muted)
@@ -118,11 +120,9 @@ struct ContentView: View {
       .position(x: layout.paperRegion.midX, y: layout.paperRegion.minY + 22)
       InkPaperView(session: session, size: layout.page.size, readOnly: false)
         .position(x: layout.page.midX, y: layout.page.midY)
-      if layout.isHorizontal {
-        InkTools(session: session, selection: $photoSelection, compact: true)
-          .frame(width: max(0, layout.paperRegion.width - 24), height: 48)
-          .position(x: layout.paperRegion.midX, y: layout.paperRegion.maxY - 25)
-      }
+      InkTools(session: session, selection: $photoSelection, compact: true)
+        .frame(width: max(0, layout.paperRegion.width - 24), height: 48)
+        .position(x: layout.paperRegion.midX, y: layout.paperRegion.maxY - 25)
     }
   }
 
@@ -140,8 +140,8 @@ struct ContentView: View {
           header(compact: region.width < 400)
           ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-              InkProblemCard(problem: session.problem, index: session.problemIndex)
-              if !layout.isHorizontal { InkTools(session: session, selection: $photoSelection) }
+              HomeworkTab(model: homework) { session.adopt($0) }
+                .frame(height: max(280, min(520, region.height * 0.5)))
               Text("Write your next step on the page.\nFold to bring Bunny beside your work.")
                 .font(BurrowTheme.ui(18)).foregroundStyle(BurrowTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -159,11 +159,9 @@ struct ContentView: View {
           header(compact: region.width < 400)
           if !layout.isHorizontal {
             Text(session.problem.equation).font(BurrowTheme.digits(29)).foregroundStyle(BurrowTheme.ink)
-            Spacer()
-            InkTools(session: session, selection: $photoSelection, compact: true)
           }
         }
-        .padding(16).frame(width: region.width, height: region.height)
+        .padding(16).frame(width: region.width, height: region.height, alignment: .topLeading)
       }
       if stage { stageBubble(layout) }
       else {

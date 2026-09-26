@@ -20,6 +20,8 @@ final class InkRecorder {
   private var replayTo = PKDrawing()
   private var replayDuration = 0.0
   private var replayTruthTime = 0.0
+  private var deliveredCheckpointTime = -Double.infinity
+  private var completedAssetID: String?
 
   func begin(document: InkDocument) {
     isRecording = true
@@ -73,18 +75,27 @@ final class InkRecorder {
     }.sorted { $0.0.id < $1.0.id }
   }
 
-  func startReplay(_ asset: InkDemoAsset, document: InkDocument) {
+  func continuesPage(_ asset: InkDemoAsset, document: InkDocument) -> Bool {
+    guard document.photo == nil, !document.isReplaying else { return false }
+    return InkReplaySequence.canContinue(asset, completedID: completedAssetID,
+      pageSourceID: document.groundTruthSource)
+  }
+
+  func startReplay(_ asset: InkDemoAsset, document: InkDocument, continuing: Bool = false) {
     guard asset.kind == .drawing, !asset.frames.isEmpty else { return }
     isRecording = false
     replayAsset = asset
+    completedAssetID = nil
     replayTime = 0
-    nextFrame = 0
+    nextFrame = continuing ? 1 : 0
     strokeStart = 0
     replayDuration = 0
-    document.clear()
+    if !continuing { document.clear() }
+    deliveredCheckpointTime = continuing ? (asset.checkpoints.last { $0.time <= (asset.frames.first?.time ?? 0) }?.time ?? -.infinity) : -.infinity
     document.isReplaying = true
     document.groundTruthSource = asset.verified ? asset.id : nil
-    advance(document: document)
+    if nextFrame < asset.frames.count { advance(document: document) }
+    else { stopReplay(document: document) }
   }
 
   func stopReplay(document: InkDocument) {
@@ -117,12 +128,20 @@ final class InkRecorder {
       document.replace(with: PKDrawing(strokes: strokes), userEdit: false)
     } else if progress >= 1 {
       document.replace(with: replayTo, userEdit: false)
-      document.groundTruth = asset.truth(at: replayTruthTime)
-      onCheckpoint?()
+      // A stroke is not necessarily a readable line. Only reviewed checkpoints
+      // trigger reads during bundled replay, never the growing partial glyphs.
+      let checkpoint = asset.checkpoints.last { $0.time <= replayTruthTime }
+      let hasNewTruth = asset.verified && (checkpoint?.time ?? -.infinity) > deliveredCheckpointTime
+      if hasNewTruth, let checkpoint {
+        document.groundTruth = checkpoint.lines
+        deliveredCheckpointTime = checkpoint.time
+        onCheckpoint?()
+      }
       if nextFrame >= asset.frames.count {
+        completedAssetID = asset.id
         replayAsset = nil
         document.isReplaying = false
-        document.onStrokeEnd?()
+        if !asset.verified { document.onStrokeEnd?() }
       } else { advance(document: document) }
     }
   }

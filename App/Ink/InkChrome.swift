@@ -23,7 +23,7 @@ struct InkHeader: View {
   private var brand: some View {
     HStack(spacing: 7) {
       Image("icons_icon128").resizable().interpolation(.none).frame(width: 28, height: 28).accessibilityHidden(true)
-      Text("burrow").font(BurrowTheme.ui(compact ? 25 : 30))
+      Text("RABBITHELPER").font(BurrowTheme.ui(compact ? 19 : 23)).lineLimit(1).minimumScaleFactor(0.7)
     }
     .contentShape(Rectangle()).accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
   }

@@ -40,8 +40,28 @@ final class InkPracticeSession {
   private var readTask: Task<Void, Never>?
   private var lastReadRevision = -1
   private var celebrated = false
+  private var ringLineNumber: Int?
+  private var revealedAt = 0.0
+  private var lastReplayID: [String: String] = [:]
 
-  var problem: PracticeProblem { problems[problemIndex] }
+  /// Homework found on the web tab; takes priority over the bundled list.
+  var webProblem: PracticeProblem?
+  var problem: PracticeProblem { webProblem ?? problems[problemIndex] }
+
+  /// The web tab found an equation: judge the student's page against it.
+  /// 3x + 5 = 20 maps to p1, so the bundled demo ink and ground truth still apply.
+  func adopt(_ equation: LinearEquation?) {
+    guard let equation else { return }
+    let found = equation.problem
+    guard found.id != problem.id else { return }
+    if let index = problems.firstIndex(where: { $0.id == found.id }) {
+      webProblem = nil
+      problemIndex = index
+    } else {
+      webProblem = found
+    }
+    newPage()
+  }
   var onStage: Bool { bunny.pose == .book || bunny.pose == .tabletop }
   var noteVisible: Bool { revealed && !judgement.note.isEmpty && boardAt != nil }
   var target: InkBox? { judgement.status == .off ? judgement.mark ?? judgement.box : ring }
@@ -80,6 +100,10 @@ final class InkPracticeSession {
   func configure(layout: InkPageLayout) {
     let old = bunny.pose
     let anchor = layout.bunnyAnchor(mark: target)
+    if old == layout.pose && onStage && bunny.phase == .resting && judgement.status == .off
+        && hypot(anchor.x - bunny.lastAnchor.x, anchor.y - bunny.lastAnchor.y) > 12 {
+      bunny.player.forceState("hop")
+    }
     bunny.configure(pose: layout.pose, anchor: anchor, scale: layout.bunnyScale) { [weak self] in
       guard let self, onStage else { return }
       if judgement.status == .off { scheduleReveal() }
@@ -112,8 +136,10 @@ final class InkPracticeSession {
     if let revealAt, clock >= revealAt, onStage, bunny.phase == .resting {
       self.revealAt = nil
       revealed = true
+      revealedAt = clock
       showsConfusion = false
       ring = judgement.mark ?? judgement.box
+      ringLineNumber = judgement.line
       ringProgress = reducedMotion ? 1 : 0
       ringSeed += 1
       chalk.play()
@@ -126,7 +152,7 @@ final class InkPracticeSession {
       bunny.message = judgement.nudge
       speak(bunny.message)
     }
-    if revealed && judgement.status == .off && clock - lastEdit >= 24 && boardAt == nil && !document.isReplaying {
+    if revealed && judgement.status == .off && clock - max(lastEdit, revealedAt) >= 24 && boardAt == nil && !document.isReplaying {
       let note = brain.readInk(lines: recognizedLines, problem: problem, rung: rung, reason: .stall)
       if note.status == .off, note.space != nil {
         judgement.note = note.note
@@ -139,6 +165,7 @@ final class InkPracticeSession {
   func requestRead(allowReplay: Bool = false) {
     guard !document.isDrawing, !document.isReplaying || allowReplay else { readAt = clock + 1.5; return }
     guard let image = document.image() else { return }
+    readAt = nil
     readTask?.cancel()
     readGeneration += 1
     let generation = readGeneration
@@ -174,12 +201,14 @@ final class InkPracticeSession {
     if next.status == .off, let line = next.line {
       let key = "\(line):\(MathNormalizer.fingerprint(next.lines[line - 1]))"
       let same = key == wrongKey
-      rung = same ? min(3, rung + 1) : 1
+      // Silent reads do not spend the student's hint ladder before the fold.
+      rung = same ? (revealed ? min(3, rung + 1) : rung) : 1
       next = brain.readInk(lines: lines, problem: problem, rung: rung, reason: .ink)
       if !same {
         wrongKey = key
         revealed = false
         ring = nil
+        ringLineNumber = nil
         boardAt = nil
         showsConfusion = true
         inviteAt = clock + 1.2
@@ -192,12 +221,12 @@ final class InkPracticeSession {
         else { ring = next.mark ?? next.box; bunny.message = next.nudge }
       } else if revealed { bunny.message = next.nudge }
     } else if next.status == .ok {
-      let priorLine = judgement.line
+      let priorLine = ringLineNumber ?? judgement.line
       // Do not erase a ring while its line is just being rewritten mid-step.
       let stillGrowing = priorLine.flatMap { index in next.lines.indices.contains(index - 1) ? next.lines[index - 1] : nil }
         .map(MathNormalizer.isUnfinished) ?? false
       if !stillGrowing {
-        ring = nil; revealed = false; wrongKey = nil
+        ring = nil; ringLineNumber = nil; revealed = false; wrongKey = nil
         showsConfusion = false; inviteAt = nil; revealAt = nil; nudgeAt = nil
         boardAt = nil
       }
@@ -215,7 +244,9 @@ final class InkPracticeSession {
       judgement = next
       showsConfusion = false
       inviteAt = nil; revealAt = nil; nudgeAt = nil
-      if !next.lines.isEmpty { bunny.message = next.nudge }
+      if !next.lines.isEmpty || !document.normalizedDrawing.strokes.isEmpty || document.photo != nil {
+        bunny.message = next.nudge.isEmpty ? "I can't quite read that line. Can you write it a little bigger?" : next.nudge
+      }
       bunny.player.setState("listening")
     }
   }
@@ -241,30 +272,44 @@ final class InkPracticeSession {
     recorder.stopReplay(document: document)
     document.clear()
     clearDiagnosis()
+    lastReplayID[problem.id] = nil
     bunny.message = "Work it out on paper. I'm here beside you."
   }
 
   func nextProblem() {
+    webProblem = nil
     problemIndex = (problemIndex + 1) % problems.count
     newPage()
   }
 
   func replay() {
-    let assets = InkRecorder.assets().filter { $0.0.problemID == problem.id && $0.0.kind == .drawing }
-    guard let (asset, _) = assets.last else {
+    guard !document.isReplaying, !document.isDrawing else { return }
+    let available = InkRecorder.assets()
+    let bundled = available.filter { $0.1.path.hasPrefix(Bundle.main.bundleURL.path) }.map(\.0)
+    let assets = InkReplaySequence.ordered(bundled, problemID: problem.id)
+    guard let asset = InkReplaySequence.next(in: assets, after: lastReplayID[problem.id]) else {
       if !recording { notice = "Record some ink first, or bundle a reviewed recording with scripts/bundle-ink.py." }
       return
     }
-    clearDiagnosis()
-    recorder.startReplay(asset, document: document)
+    play(asset)
+  }
+
+  private func play(_ asset: InkDemoAsset) {
+    let continuing = recorder.continuesPage(asset, document: document)
+    readGeneration += 1; readTask?.cancel(); isReading = false; readAt = nil
+    if !continuing { clearDiagnosis() }
+    // Keep the diagnosis, ring, hint rung, and visible page through a matching
+    // continuation. Its completed correction checkpoint clears the ring.
+    lastReplayID[problem.id] = asset.id
+    recorder.startReplay(asset, document: document, continuing: continuing)
   }
 
   func load(_ asset: InkDemoAsset, directory: URL) {
     guard let index = problems.firstIndex(where: { $0.id == asset.problemID }) else { return }
     problemIndex = index
-    newPage()
-    if asset.kind == .drawing { recorder.startReplay(asset, document: document) }
+    if asset.kind == .drawing { play(asset) }
     else if let data = try? Data(contentsOf: directory.appendingPathComponent(asset.file)), let image = UIImage(data: data) {
+      newPage()
       document.photo = image
       document.groundTruth = asset.truth(at: .greatestFiniteMagnitude)
       document.groundTruthSource = asset.verified ? asset.id : nil
@@ -275,9 +320,12 @@ final class InkPracticeSession {
   private func clearDiagnosis() {
     readGeneration += 1; readTask?.cancel(); isReading = false
     judgement = .empty; recognizedLines = []; ring = nil; revealed = false
+    ringLineNumber = nil
     wrongKey = nil; rung = 1; celebrated = false; showsConfusion = false
     inviteAt = nil; revealAt = nil; nudgeAt = nil; boardAt = nil; readAt = nil
     lastEdit = clock; lastReadRevision = -1
+    bunny.message = "Work it out on paper. I'm here beside you."
+    bunny.player.setState("idle")
   }
 
   private func speak(_ text: String) {

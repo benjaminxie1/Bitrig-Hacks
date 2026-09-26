@@ -10,7 +10,7 @@ let package = Package(
   targets: [
     .target(
       name: "BurrowCore", path: "App",
-      exclude: ["Assets.xcassets", "App.swift", "ContentView.swift", "Views",
+      exclude: ["Assets.xcassets", "App.swift", "ContentView.swift", "Views", "Web", "Resources/WebDemo",
                 "Art/BundledResource.swift", "Art/NineSlice.swift", "Art/PixelArtStore.swift",
                 "Art/SpriteView.swift", "Art/BurrowSceneView.swift",
                 "Design/PixelButtonStyle.swift", "Design/Theme.swift",
@@ -29,8 +29,8 @@ let package = Package(
                 "Design/BurrowLayout.swift", "Art/CharacterManifest.swift", "Art/SpritePlayer.swift",
                 "Ink/StepJudge.swift", "Ink/InkJudgement.swift", "Ink/MathNormalizer.swift",
                 "Ink/InkNudges.swift", "Ink/InkJudge.swift", "Ink/MockInkJudge.swift",
-                "Ink/InkDemoAsset.swift", "Ink/InkPageLayout.swift"],
-      resources: [.copy("Resources/Problems.json"), .copy("Resources/RabbitManifest.json")]
+                "Ink/InkDemoAsset.swift", "Ink/InkPageLayout.swift", "Ink/InkReplaySequence.swift"],
+      resources: [.copy("Resources/Problems.json"), .copy("Resources/RabbitManifest.json"), .copy("Resources/InkDemos")]
     ),
     .testTarget(name: "BurrowCoreTests", dependencies: ["BurrowCore"], path: "Tests")
   ]

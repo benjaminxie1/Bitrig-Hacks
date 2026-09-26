@@ -156,5 +156,47 @@ struct InkTests {
     let truth = lines(["3x + 5 = 20", "3x = 25"])
     #expect(InkDemoAsset.resolve(live: lines(["3x = 2S"]), truth: truth) == truth)
     #expect(InkDemoAsset.resolve(live: truth, truth: nil) == truth)
+    let empty = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(InkJudgement.empty)) as? [String: Any])
+    #expect(Set(empty.keys) == ["lines", "status", "line", "box", "mark", "issue", "nudge", "confidence", "solved", "note", "space"])
+    #expect(empty["line"] is NSNull && empty["box"] is NSNull && empty["mark"] is NSNull)
+  }
+
+  @Test func bundledDemoSidecarsMatchTheirIntendedVerdictsAndStayInsidePage() throws {
+    let directory = try #require(Bundle.module.url(forResource: "InkDemos", withExtension: nil))
+    let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+      .filter { $0.lastPathComponent.hasSuffix(".ink.json") }
+    #expect(urls.count == 5)
+    for url in urls {
+      let demo = try JSONDecoder().decode(InkDemoAsset.self, from: Data(contentsOf: url))
+      #expect(demo.verified)
+      #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(demo.file).path))
+      let lines = try #require(demo.checkpoints.last?.lines)
+      #expect(lines.allSatisfy { $0.box.isValid && $0.tokens.allSatisfy { $0.box.isValid } })
+      let result = InkJudge.judge(lines: lines, problem: problem, rung: 1)
+      if demo.id == "sample-fixed" || demo.id == "p1-b-fix" { #expect(result.solved && result.status == .ok) }
+      else { #expect(result.status == .off && result.line == 2 && result.mark == lines[1].tokens.last?.box) }
+      #expect(demo.truth(at: -1)?.isEmpty == true)
+    }
+  }
+
+  @Test func demoSequenceStartsWithMistakeAndContinuesWithoutClearing() throws {
+    let directory = try #require(Bundle.module.url(forResource: "InkDemos", withExtension: nil))
+    let assets = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+      .filter { $0.lastPathComponent.hasSuffix(".ink.json") }
+      .map { try JSONDecoder().decode(InkDemoAsset.self, from: Data(contentsOf: $0)) }
+    let ordered = InkReplaySequence.ordered(assets.reversed(), problemID: "p1")
+    #expect(ordered.map(\.id) == ["p1-a-mistake", "p1-b-fix"])
+    #expect(InkReplaySequence.next(in: ordered, after: nil)?.id == "p1-a-mistake")
+    #expect(InkReplaySequence.next(in: ordered, after: "p1-a-mistake")?.id == "p1-b-fix")
+    #expect(InkReplaySequence.next(in: ordered, after: "p1-b-fix")?.id == "p1-a-mistake")
+    #expect(InkReplaySequence.ordered(assets, problemID: "p2").isEmpty)
+    #expect(ordered[1].continues == ordered[0].id)
+    #expect(InkReplaySequence.canContinue(ordered[1], completedID: ordered[0].id, pageSourceID: ordered[0].id))
+    #expect(!InkReplaySequence.canContinue(ordered[1], completedID: nil, pageSourceID: ordered[0].id))
+    #expect(!InkReplaySequence.canContinue(ordered[1], completedID: ordered[0].id, pageSourceID: nil))
+    #expect(!InkReplaySequence.canContinue(ordered[0], completedID: ordered[1].id, pageSourceID: ordered[1].id))
+    let unfinished = try #require(ordered[1].checkpoints.first { $0.time == 1.6 })
+    #expect(MathNormalizer.isUnfinished(unfinished.lines[1].text))
+    #expect(InkJudge.judge(lines: unfinished.lines, problem: problem, rung: 1).status == .ok)
   }
 }

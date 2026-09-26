@@ -1,6 +1,6 @@
 #!/bin/bash
-# Usage: scripts/record.sh [path/to/Burrow.app]
-# Optional: SIMULATOR_UDID, RECORDINGS_DIR, POSE (flat/tabletop/book/closed).
+# Usage: scripts/record.sh [path/to/RABBITHELPER.app]
+# Optional: SIMULATOR_UDID, RECORDINGS_DIR, DISPLAY_ID (3 inner, 1 outer), POSE.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && /bin/pwd)"
@@ -33,13 +33,13 @@ if [[ -z "$APP_PATH" ]]; then
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])
 build=p.parent.parent/"Builds"/p.name/"BuildProducts"
-apps=list(build.glob("builtin-simulator/**/Debug-iphonesimulator/Burrow.app"))
+apps=list(build.glob("builtin-simulator/**/Debug-iphonesimulator/RABBITHELPER.app"))
 if apps: print(max(apps,key=lambda a:a.stat().st_mtime))
 PY
 )"
 fi
 if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
-  echo "Build Burrow in Bitrig first, or pass its .app path." >&2
+  echo "Build RABBITHELPER in Bitrig first, or pass its .app path." >&2
   exit 1
 fi
 xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
@@ -66,22 +66,25 @@ fi
 xcrun simctl launch "$SIMULATOR_UDID" "$BUNDLE_ID" "${LAUNCH_ARGS[@]}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
-# Duo's inner panel is display 3; its outer panel is display 1. The default
-# points at the inner panel even when it is off. Capture both for the close.
-INNER_DISPLAY="${INNER_DISPLAY:-3}"
-OUTER_DISPLAY="${OUTER_DISPLAY:-1}"
-PIDS=()
+# This runtime permits one host recorder at a time. Capture the inner take,
+# then use DISPLAY_ID=1 for a separate outer-display closing shot.
+DISPLAY_ID="${DISPLAY_ID:-3}"
+case "$DISPLAY_ID" in 3) PANEL=inner;; 1) PANEL=outer;;
+  *) echo "DISPLAY_ID must be 3 (inner) or 1 (outer)." >&2; exit 1;; esac
+MOVIE="$RECORDINGS_DIR/rabbithelper-$STAMP-$PANEL.mp4"
+RECORDER_PID=""
 cleanup() {
   trap - INT TERM EXIT
-  for pid in "${PIDS[@]}"; do kill -INT "$pid" 2>/dev/null || true; done
-  for pid in "${PIDS[@]}"; do wait "$pid" || true; done
+  if [[ -n "$RECORDER_PID" ]]; then
+    kill -INT "$RECORDER_PID" 2>/dev/null || true
+    wait "$RECORDER_PID" || true
+  fi
   xcrun simctl status_bar "$SIMULATOR_UDID" clear || true
-  echo "Saved recordings to $RECORDINGS_DIR/burrow-$STAMP-{inner,outer}.mp4"
+  if [[ -s "$MOVIE" ]]; then echo "Saved recording: $MOVIE"
+  else echo "No movie was saved. Check the simulator recorder output." >&2; fi
 }
 trap cleanup INT TERM EXIT
-xcrun simctl io "$SIMULATOR_UDID" recordVideo --codec=h264 --display="$INNER_DISPLAY" "$RECORDINGS_DIR/burrow-$STAMP-inner.mp4" &
-PIDS+=("$!")
-xcrun simctl io "$SIMULATOR_UDID" recordVideo --codec=h264 --display="$OUTER_DISPLAY" "$RECORDINGS_DIR/burrow-$STAMP-outer.mp4" &
-PIDS+=("$!")
-echo "Recording both displays. Use the simulator fold controls; press Ctrl+C to finish."
-wait "${PIDS[@]}"
+xcrun simctl io "$SIMULATOR_UDID" recordVideo --codec=h264 --display="$DISPLAY_ID" "$MOVIE" &
+RECORDER_PID="$!"
+echo "Recording the $PANEL display. Press Ctrl+C to finish."
+wait "$RECORDER_PID"

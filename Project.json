@@ -3,7 +3,7 @@
     "Debug": "debug",
     "Release": "release"
   },
-  "name": "Burrow",
+  "name": "RABBITHELPER",
   "options": {
     "groupSortPosition": "bottom",
     "transitivelyLinkDependencies": false,
@@ -15,11 +15,11 @@
     "CODE_SIGN_IDENTITY": "-"
   },
   "targets": {
-    "Burrow": {
+    "RABBITHELPER": {
       "info": {
         "path": "App/Info.plist",
         "properties": {
-          "CFBundleDisplayName": "Burrow",
+          "CFBundleDisplayName": "RABBITHELPER",
           "CFBundleShortVersionString": "1.0",
           "CFBundleVersion": "1",
           "ITSAppUsesNonExemptEncryption": false,
@@ -49,7 +49,15 @@
       },
       "sources": [
         {
-          "path": "App"
+          "path": "App",
+          "excludes": [
+            "Resources/WebDemo"
+          ]
+        },
+        {
+          "path": "App/Resources/WebDemo",
+          "type": "folder",
+          "buildPhase": "resources"
         }
       ],
       "type": "application"

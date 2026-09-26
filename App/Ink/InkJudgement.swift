@@ -16,6 +16,24 @@ struct InkJudgement: Codable, Equatable, Sendable {
   var note: [String]
   var space: InkBox?
 
+  enum CodingKeys: String, CodingKey {
+    case lines, status, line, box, mark, issue, nudge, confidence, solved, note, space
+  }
+  func encode(to encoder: any Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(lines, forKey: .lines)
+    try values.encode(status, forKey: .status)
+    try values.encode(line, forKey: .line)
+    try values.encode(box, forKey: .box)
+    try values.encode(mark, forKey: .mark)
+    try values.encode(issue, forKey: .issue)
+    try values.encode(nudge, forKey: .nudge)
+    try values.encode(confidence, forKey: .confidence)
+    try values.encode(solved, forKey: .solved)
+    try values.encode(note, forKey: .note)
+    try values.encode(space, forKey: .space)
+  }
+
   static var empty: Self {
     .init(lines: [], status: .unclear, line: nil, box: nil, mark: nil,
           issue: "", nudge: "", confidence: 0, solved: false, note: [], space: nil)

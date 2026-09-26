@@ -69,16 +69,19 @@ enum InkJudge {
   static func largestEmptySpace(around boxes: [InkBox]) -> InkBox? {
     let obstacles = boxes.filter(\.isValid).map { $0.rect.insetBy(dx: -0.025, dy: -0.02) }
     let xs = ([0.05, 0.95] + obstacles.flatMap { [max(0.05, $0.minX), min(0.95, $0.maxX)] }).sorted()
-    let ys = ([0.06, 0.94] + obstacles.flatMap { [max(0.06, $0.minY), min(0.94, $0.maxY)] }).sorted()
     var best = CGRect.zero
     for left in xs {
       for right in xs where right > left {
-        for top in ys {
-          for bottom in ys where bottom > top {
-            let rect = CGRect(x: left, y: top, width: right - left, height: bottom - top)
-            if rect.width * rect.height > best.width * best.height &&
-                !obstacles.contains(where: { $0.intersects(rect.insetBy(dx: 0.00001, dy: 0.00001)) }) { best = rect }
+        let blocked = obstacles.filter { $0.minX < right - 0.00001 && $0.maxX > left + 0.00001 }
+          .sorted { $0.minY < $1.minY }
+        var top = 0.06
+        for obstacle in blocked + [CGRect(x: 0, y: 0.94, width: 1, height: 0)] {
+          let bottom = min(0.94, obstacle.minY)
+          if bottom > top {
+            let candidate = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+            if candidate.width * candidate.height > best.width * best.height { best = candidate }
           }
+          top = max(top, obstacle.maxY)
         }
       }
     }

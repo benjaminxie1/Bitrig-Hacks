@@ -32,7 +32,7 @@ struct InkPageLayout: Equatable {
     // The same vertical chrome allowance is used while flat and in book pose.
     // The drawing never resizes merely because the facing page becomes a stage.
     let reservedTop: CGFloat = pose == .closed ? 52 : 46
-    let reservedBottom: CGFloat = pose == .closed ? 155 : isHorizontal ? 54 : 14
+    let reservedBottom: CGFloat = pose == .closed ? 155 : 54
     let available = CGRect(x: paperRegion.minX + 12, y: paperRegion.minY + reservedTop,
       width: max(1, paperRegion.width - 24), height: max(1, paperRegion.height - reservedTop - reservedBottom))
     let width = min(available.width, available.height / Self.aspect)

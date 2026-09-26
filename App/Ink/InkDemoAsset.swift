@@ -11,6 +11,7 @@ struct InkDemoAsset: Codable, Sendable {
   var verified: Bool
   var checkpoints: [Checkpoint]
   var frames: [Frame]
+  var continues: String? = nil
 
   enum Kind: String, Codable, Sendable { case drawing, photo }
   struct Checkpoint: Codable, Sendable {

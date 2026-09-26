@@ -53,16 +53,20 @@ final class InkDocument {
     let drawing = normalizedDrawing.transformed(using: CGAffineTransform(scaleX: size.width, y: size.height))
     let format = UIGraphicsImageRendererFormat()
     format.scale = 1
-    let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
-      UIColor.white.setFill()
-      context.fill(CGRect(origin: .zero, size: size))
-      if let photo {
-        let frame = Self.photoRect(imageSize: photo.size, pageSize: size)
-        photo.draw(in: frame)
+    var result: CGImage?
+    UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+      let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+        UIColor.white.setFill()
+        context.fill(CGRect(origin: .zero, size: size))
+        if let photo {
+          let frame = Self.photoRect(imageSize: photo.size, pageSize: size)
+          photo.draw(in: frame)
+        }
+        drawing.image(from: CGRect(origin: .zero, size: size), scale: 1).draw(at: .zero)
       }
-      drawing.image(from: CGRect(origin: .zero, size: size), scale: 1).draw(at: .zero)
+      result = image.cgImage
     }
-    return image.cgImage
+    return result
   }
 
   static func photoRect(imageSize: CGSize, pageSize: CGSize) -> CGRect {
